@@ -8,9 +8,13 @@ import {
   TrendingUp,
   Crown,
   Plus,
-  Award
+  Award,
+  UserPlus
 } from 'lucide-react';
-import { customers, loyaltyAccounts } from '../data/mockData';
+import { useTranslation } from 'react-i18next';
+import { loyaltyAccounts } from '../data/mockData';
+import { useStore } from '../store/useStore';
+import { Modal } from '../components/common/Modal';
 import type { LoyaltyLevel } from '../types';
 import clsx from 'clsx';
 
@@ -30,8 +34,19 @@ const rewards = [
 ];
 
 export function LoyaltyPage() {
+  const { t } = useTranslation();
+  const { customers, addCustomer, updateCustomerPoints, showNotification } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const [showAddPoints, setShowAddPoints] = useState(false);
+  const [pointsToAdd, setPointsToAdd] = useState('');
+  const [newCustomer, setNewCustomer] = useState({
+    firstName: '',
+    lastName: '',
+    phone: '',
+    email: '',
+  });
 
   const customersWithLoyalty = customers.map(customer => ({
     ...customer,
@@ -53,15 +68,63 @@ export function LoyaltyPage() {
   const totalPoints = loyaltyAccounts.reduce((sum, l) => sum + l.totalPointsEarned, 0);
   const avgPoints = totalMembers > 0 ? Math.round(totalPoints / totalMembers) : 0;
 
+  const handleAddCustomer = () => {
+    if (!newCustomer.firstName || !newCustomer.lastName || !newCustomer.phone) {
+      showNotification('Por favor completa los campos requeridos', 'error');
+      return;
+    }
+
+    const customer = addCustomer({
+      firstName: newCustomer.firstName,
+      lastName: newCustomer.lastName,
+      phone: newCustomer.phone,
+      email: newCustomer.email || undefined,
+      address: undefined,
+      birthDate: undefined,
+    });
+
+    setSelectedCustomer(customer.id);
+    setShowAddCustomer(false);
+    setNewCustomer({ firstName: '', lastName: '', phone: '', email: '' });
+    showNotification(`Cliente ${customer.firstName} creado exitosamente`, 'success');
+  };
+
+  const handleRedeemReward = (rewardName: string, rewardPoints: number) => {
+    if (!selectedCustomerData?.loyalty) return;
+
+    updateCustomerPoints(selectedCustomerData.id, -rewardPoints);
+    showNotification(`Recompensa "${rewardName}" canjeada - ${rewardPoints} puntos`, 'success');
+    // Force re-render by re-selecting customer
+    setSelectedCustomer(null);
+    setTimeout(() => setSelectedCustomer(selectedCustomerData.id), 0);
+  };
+
+  const handleAddPoints = () => {
+    if (!selectedCustomerData || !pointsToAdd) return;
+    const points = parseInt(pointsToAdd);
+    if (isNaN(points) || points <= 0) {
+      showNotification('Por favor ingresa un número válido de puntos', 'error');
+      return;
+    }
+
+    updateCustomerPoints(selectedCustomerData.id, points);
+    showNotification(`${points} puntos agregados a ${selectedCustomerData.firstName}`, 'success');
+    setShowAddPoints(false);
+    setPointsToAdd('');
+    // Force re-render
+    setSelectedCustomer(null);
+    setTimeout(() => setSelectedCustomer(selectedCustomerData.id), 0);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Programa de Lealtad</h1>
-          <p className="text-slate-500">Gestión de clientes, puntos y recompensas</p>
+          <h1 className="text-2xl font-bold text-slate-900">{t('loyalty.title')}</h1>
+          <p className="text-slate-500">{t('loyalty.subtitle')}</p>
         </div>
-        <button className="btn btn-primary">
+        <button onClick={() => setShowAddCustomer(true)} className="btn btn-primary">
           <Plus size={18} />
           Nuevo Cliente
         </button>
@@ -69,7 +132,7 @@ export function LoyaltyPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="card p-4">
+        <div className="card p-4 card-hover">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-pink-100 flex items-center justify-center">
               <Heart className="text-pink-600" size={24} />
@@ -81,7 +144,7 @@ export function LoyaltyPage() {
           </div>
         </div>
 
-        <div className="card p-4">
+        <div className="card p-4 card-hover">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center">
               <Star className="text-amber-600" size={24} />
@@ -93,7 +156,7 @@ export function LoyaltyPage() {
           </div>
         </div>
 
-        <div className="card p-4">
+        <div className="card p-4 card-hover">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
               <TrendingUp className="text-blue-600" size={24} />
@@ -105,7 +168,7 @@ export function LoyaltyPage() {
           </div>
         </div>
 
-        <div className="card p-4">
+        <div className="card p-4 card-hover">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center">
               <Gift className="text-purple-600" size={24} />
@@ -232,6 +295,12 @@ export function LoyaltyPage() {
                     {selectedCustomerData.loyalty?.points.toLocaleString() || 0}
                   </p>
                   <p className="text-teal-100">Puntos disponibles</p>
+                  <button
+                    onClick={() => setShowAddPoints(true)}
+                    className="mt-2 px-3 py-1 bg-white/20 rounded-lg text-sm hover:bg-white/30 transition-colors"
+                  >
+                    + Agregar puntos
+                  </button>
                 </div>
                 <div className="card p-4 text-center">
                   <p className="text-2xl font-bold text-slate-900">
@@ -333,6 +402,7 @@ export function LoyaltyPage() {
                             {reward.points.toLocaleString()} puntos
                           </span>
                           <button
+                            onClick={() => handleRedeemReward(reward.name, reward.points)}
                             disabled={!canRedeem || !hasLevel}
                             className={clsx(
                               'btn btn-sm',
@@ -361,6 +431,143 @@ export function LoyaltyPage() {
           )}
         </div>
       </div>
+
+      {/* Add Customer Modal */}
+      <Modal
+        isOpen={showAddCustomer}
+        onClose={() => setShowAddCustomer(false)}
+        title="Nuevo Cliente"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Nombre *
+              </label>
+              <input
+                type="text"
+                value={newCustomer.firstName}
+                onChange={(e) => setNewCustomer({ ...newCustomer, firstName: e.target.value })}
+                className="input"
+                placeholder="Juan"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Apellido *
+              </label>
+              <input
+                type="text"
+                value={newCustomer.lastName}
+                onChange={(e) => setNewCustomer({ ...newCustomer, lastName: e.target.value })}
+                className="input"
+                placeholder="Pérez"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Teléfono *
+            </label>
+            <input
+              type="tel"
+              value={newCustomer.phone}
+              onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+              className="input"
+              placeholder="555-123-4567"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Email (opcional)
+            </label>
+            <input
+              type="email"
+              value={newCustomer.email}
+              onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
+              className="input"
+              placeholder="juan@ejemplo.com"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-4">
+            <button
+              onClick={() => setShowAddCustomer(false)}
+              className="btn btn-secondary flex-1"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleAddCustomer}
+              className="btn btn-primary flex-1"
+            >
+              <UserPlus size={18} />
+              Crear Cliente
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Add Points Modal */}
+      <Modal
+        isOpen={showAddPoints}
+        onClose={() => {
+          setShowAddPoints(false);
+          setPointsToAdd('');
+        }}
+        title="Agregar Puntos"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-slate-600">
+            Agregar puntos a <strong>{selectedCustomerData?.firstName} {selectedCustomerData?.lastName}</strong>
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Cantidad de puntos
+            </label>
+            <input
+              type="number"
+              value={pointsToAdd}
+              onChange={(e) => setPointsToAdd(e.target.value)}
+              className="input text-center text-2xl font-bold"
+              placeholder="100"
+              min="1"
+            />
+          </div>
+          <div className="flex gap-2">
+            {[50, 100, 200, 500].map(pts => (
+              <button
+                key={pts}
+                onClick={() => setPointsToAdd(pts.toString())}
+                className="btn btn-secondary btn-sm flex-1"
+              >
+                +{pts}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2 pt-4">
+            <button
+              onClick={() => {
+                setShowAddPoints(false);
+                setPointsToAdd('');
+              }}
+              className="btn btn-secondary flex-1"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleAddPoints}
+              className="btn btn-primary flex-1"
+            >
+              Agregar Puntos
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

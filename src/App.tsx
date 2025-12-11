@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from './store/useStore';
 import { MainLayout } from './components/layout/MainLayout';
 import { LoginPage } from './pages/LoginPage';
@@ -7,9 +9,32 @@ import { InventoryPage } from './pages/InventoryPage';
 import { ConsultationPage } from './pages/ConsultationPage';
 import { LoyaltyPage } from './pages/LoyaltyPage';
 import { AdminPage } from './pages/AdminPage';
+import { Toast } from './components/common/Toast';
 
 function App() {
-  const { isAuthenticated, currentModule } = useStore();
+  const { i18n } = useTranslation();
+  const { isAuthenticated, currentModule, language, setLanguage } = useStore();
+
+  // Sync language between Zustand store and i18n on mount
+  useEffect(() => {
+    // If i18n language differs from store, sync them
+    if (i18n.language !== language) {
+      // Prefer the stored language from localStorage
+      const storedLang = localStorage.getItem('farmacia-language') as 'es' | 'en' | null;
+      if (storedLang && (storedLang === 'es' || storedLang === 'en')) {
+        if (storedLang !== language) {
+          setLanguage(storedLang);
+        }
+        if (storedLang !== i18n.language) {
+          i18n.changeLanguage(storedLang);
+        }
+      } else {
+        // Use store language as source of truth
+        i18n.changeLanguage(language);
+        localStorage.setItem('farmacia-language', language);
+      }
+    }
+  }, []); // Only run on mount
 
   if (!isAuthenticated) {
     return <LoginPage />;
@@ -60,9 +85,12 @@ function App() {
   };
 
   return (
-    <MainLayout>
-      {renderModule()}
-    </MainLayout>
+    <>
+      <MainLayout>
+        {renderModule()}
+      </MainLayout>
+      <Toast />
+    </>
   );
 }
 

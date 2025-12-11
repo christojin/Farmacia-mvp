@@ -64,8 +64,7 @@ export function PaymentPanel({ onClose }: PaymentPanelProps) {
     const sale = completeSale();
     if (sale) {
       onClose();
-      // In a real app, we would print receipt, update inventory, etc.
-      alert(`Venta completada!\nTotal: $${sale.total.toFixed(2)}\nCambio: $${change.toFixed(2)}`);
+      // Toast notification is handled by the store's completeSale function
     }
   };
 

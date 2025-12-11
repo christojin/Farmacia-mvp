@@ -16,14 +16,16 @@ import {
   products,
   productPrices,
   productLots,
-  customers,
+  customers as mockCustomers,
   loyaltyAccounts,
   promotions,
   users,
   consultations as mockConsultations,
   alerts as mockAlerts,
   shifts as mockShifts,
+  expenses as mockExpenses,
 } from '../data/mockData';
+import type { Expense } from '../types';
 
 interface CartItem extends Omit<SaleItem, 'id'> {
   id: string;
@@ -46,6 +48,10 @@ interface AppState {
   consultations: Consultation[];
   alerts: Alert[];
   currentShift: Shift | null;
+  customers: Customer[];
+  expenses: Expense[];
+  salesHistory: Sale[];
+  notifications: { id: string; message: string; type: 'success' | 'error' | 'info' }[];
 
   // UI
   sidebarOpen: boolean;
@@ -72,10 +78,29 @@ interface AppState {
   // Actions - Consultations
   updateConsultationStatus: (id: string, status: Consultation['status']) => void;
   addConsultation: (consultation: Omit<Consultation, 'id' | 'createdAt'>) => void;
+  updateConsultation: (id: string, updates: Partial<Consultation>) => void;
+  cancelConsultation: (id: string) => void;
 
   // Actions - Alerts
   markAlertAsRead: (id: string) => void;
   dismissAlert: (id: string) => void;
+  addAlert: (alert: Omit<Alert, 'id' | 'createdAt'>) => void;
+
+  // Actions - Customers
+  searchCustomers: (query: string) => Customer[];
+  addCustomer: (customer: Omit<Customer, 'id' | 'qrCode' | 'createdAt'>) => Customer;
+  updateCustomerPoints: (customerId: string, points: number) => void;
+
+  // Actions - Expenses
+  addExpense: (expense: Omit<Expense, 'id'>) => void;
+
+  // Actions - Shift
+  closeShift: (closingBalance: number) => void;
+  openShift: (openingBalance: number) => void;
+
+  // Actions - Notifications
+  showNotification: (message: string, type?: 'success' | 'error' | 'info') => void;
+  dismissNotification: (id: string) => void;
 
   // Actions - UI
   toggleSidebar: () => void;
@@ -108,6 +133,10 @@ export const useStore = create<AppState>()(
       consultations: mockConsultations,
       alerts: mockAlerts,
       currentShift: mockShifts[0],
+      customers: mockCustomers,
+      expenses: mockExpenses,
+      salesHistory: [],
+      notifications: [],
       sidebarOpen: true,
       currentModule: 'dashboard',
       language: 'es' as Language,
@@ -248,7 +277,7 @@ export const useStore = create<AppState>()(
         if (!heldSale) return;
 
         const customer = heldSale.customerId
-          ? customers.find(c => c.id === heldSale.customerId) || null
+          ? mockCustomers.find((c: Customer) => c.id === heldSale.customerId) || null
           : null;
 
         set(state => ({
@@ -306,7 +335,23 @@ export const useStore = create<AppState>()(
           }
         }
 
-        set({ cart: [], payments: [], currentCustomer: null });
+        // Calculate payment totals by type
+        const cashTotal = state.payments.filter(p => p.method === 'cash').reduce((sum, p) => sum + p.amount, 0);
+        const cardTotal = state.payments.filter(p => p.method === 'card').reduce((sum, p) => sum + p.amount, 0);
+
+        set(prevState => ({
+          cart: [],
+          payments: [],
+          currentCustomer: null,
+          salesHistory: [...prevState.salesHistory, sale],
+          currentShift: prevState.currentShift ? {
+            ...prevState.currentShift,
+            cashPayments: prevState.currentShift.cashPayments + cashTotal,
+            cardPayments: prevState.currentShift.cardPayments + cardTotal,
+          } : null,
+        }));
+
+        get().showNotification(`Venta completada - $${totals.total.toFixed(2)}`, 'success');
         return sale;
       },
 
@@ -326,6 +371,25 @@ export const useStore = create<AppState>()(
             { ...consultation, id: generateId(), createdAt: new Date() },
           ],
         }));
+        get().showNotification('Consulta registrada exitosamente', 'success');
+      },
+
+      updateConsultation: (id: string, updates: Partial<Consultation>) => {
+        set(state => ({
+          consultations: state.consultations.map(c =>
+            c.id === id ? { ...c, ...updates } : c
+          ),
+        }));
+        get().showNotification('Consulta actualizada', 'success');
+      },
+
+      cancelConsultation: (id: string) => {
+        set(state => ({
+          consultations: state.consultations.map(c =>
+            c.id === id ? { ...c, status: 'cancelled' as const } : c
+          ),
+        }));
+        get().showNotification('Consulta cancelada', 'info');
       },
 
       // Alert actions
@@ -338,6 +402,132 @@ export const useStore = create<AppState>()(
       dismissAlert: (id: string) => {
         set(state => ({
           alerts: state.alerts.filter(a => a.id !== id),
+        }));
+      },
+
+      addAlert: (alert: Omit<Alert, 'id' | 'createdAt'>) => {
+        set(state => ({
+          alerts: [{ ...alert, id: generateId(), createdAt: new Date() }, ...state.alerts],
+        }));
+      },
+
+      // Customer actions
+      searchCustomers: (query: string) => {
+        const state = get();
+        const lowerQuery = query.toLowerCase();
+        return state.customers.filter(c =>
+          c.firstName.toLowerCase().includes(lowerQuery) ||
+          c.lastName.toLowerCase().includes(lowerQuery) ||
+          c.phone.includes(query) ||
+          c.qrCode.toLowerCase().includes(lowerQuery)
+        );
+      },
+
+      addCustomer: (customer: Omit<Customer, 'id' | 'qrCode' | 'createdAt'>) => {
+        const newCustomer: Customer = {
+          ...customer,
+          id: generateId(),
+          qrCode: `QR-${Date.now().toString(36).toUpperCase()}`,
+          createdAt: new Date(),
+        };
+        set(state => ({
+          customers: [...state.customers, newCustomer],
+        }));
+        // Also create a loyalty account for new customer
+        const loyalty = {
+          id: generateId(),
+          customerId: newCustomer.id,
+          points: 0,
+          level: 'bronze' as const,
+          totalPointsEarned: 0,
+          totalPointsRedeemed: 0,
+          createdAt: new Date(),
+        };
+        loyaltyAccounts.push(loyalty);
+        return newCustomer;
+      },
+
+      updateCustomerPoints: (customerId: string, points: number) => {
+        const loyalty = loyaltyAccounts.find(l => l.customerId === customerId);
+        if (loyalty) {
+          loyalty.points += points;
+          if (points > 0) {
+            loyalty.totalPointsEarned += points;
+          } else {
+            loyalty.totalPointsRedeemed += Math.abs(points);
+          }
+          // Update level based on total points
+          if (loyalty.totalPointsEarned >= 5000) loyalty.level = 'platinum';
+          else if (loyalty.totalPointsEarned >= 2000) loyalty.level = 'gold';
+          else if (loyalty.totalPointsEarned >= 500) loyalty.level = 'silver';
+        }
+      },
+
+      // Expense actions
+      addExpense: (expense: Omit<Expense, 'id'>) => {
+        set(state => ({
+          expenses: [{ ...expense, id: generateId() }, ...state.expenses],
+        }));
+        get().showNotification('Gasto registrado exitosamente', 'success');
+      },
+
+      // Shift actions
+      closeShift: (closingBalance: number) => {
+        set(state => {
+          if (!state.currentShift) return state;
+          const expectedCash = state.currentShift.openingBalance +
+            state.currentShift.cashPayments -
+            state.currentShift.returnsTotal;
+          const difference = closingBalance - expectedCash;
+
+          return {
+            currentShift: {
+              ...state.currentShift,
+              status: 'closed' as const,
+              closingBalance,
+              expectedBalance: expectedCash,
+              closedAt: new Date(),
+              difference,
+            },
+          };
+        });
+        get().showNotification('Turno cerrado exitosamente', 'success');
+      },
+
+      openShift: (openingBalance: number) => {
+        set(state => ({
+          currentShift: {
+            id: generateId(),
+            cashRegisterId: 'register-1',
+            userId: state.currentUser?.id || '',
+            openedAt: new Date(),
+            openingBalance,
+            salesTotal: 0,
+            cashPayments: 0,
+            cardPayments: 0,
+            voucherPayments: 0,
+            returnsTotal: 0,
+            status: 'open',
+          },
+        }));
+        get().showNotification('Turno abierto exitosamente', 'success');
+      },
+
+      // Notification actions
+      showNotification: (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+        const id = generateId();
+        set(state => ({
+          notifications: [...state.notifications, { id, message, type }],
+        }));
+        // Auto-dismiss after 3 seconds
+        setTimeout(() => {
+          get().dismissNotification(id);
+        }, 3000);
+      },
+
+      dismissNotification: (id: string) => {
+        set(state => ({
+          notifications: state.notifications.filter(n => n.id !== id),
         }));
       },
 
